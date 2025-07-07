@@ -7,6 +7,8 @@ import { PROJECT_ID } from './projectId';
 interface TelemetryRecord {
   project_id: string;
   device_id?: string;
+  device_manufacturer?: string;
+  device_model?: string;
   os: 'iOS' | 'Android';
   os_version: string;
   framework: string;
@@ -77,6 +79,8 @@ export class Telemetry {
     const record: TelemetryRecord = {
       project_id: PROJECT_ID,
       device_id: deviceMetadata?.deviceId,
+      device_manufacturer: deviceMetadata?.make,
+      device_model: deviceMetadata?.model,
       os: Platform.OS === 'ios' ? 'iOS' : 'Android',
       os_version: Platform.Version.toString(),
       framework: 'react-native',
