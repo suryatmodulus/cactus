@@ -1,11 +1,13 @@
 import 'dart:io';
 import 'dart:convert';
 import './types.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 
 class TelemetryRecord {
   final String os;
   final String osVersion;
   final String framework;
+  final String projectId;
   final Map<String, dynamic>? telemetryPayload;
   final Map<String, dynamic>? errorPayload;
   final String timestamp;
@@ -17,6 +19,7 @@ class TelemetryRecord {
     required this.os,
     required this.osVersion,
     required this.framework,
+    required this.projectId,
     this.telemetryPayload,
     this.errorPayload,
     required this.timestamp,
@@ -30,6 +33,7 @@ class TelemetryRecord {
       'os': os,
       'os_version': osVersion,
       'framework': framework,
+      'project_id': projectId,
       if (telemetryPayload != null) 'telemetry_payload': telemetryPayload,
       if (errorPayload != null) 'error_payload': errorPayload,
       'timestamp': timestamp,
@@ -82,21 +86,23 @@ class CactusTelemetry {
     _instance ??= CactusTelemetry._(config);
   }
 
-  static void track(Map<String, dynamic> payload, CactusInitParams options) {
+  static Future<void> track(Map<String, dynamic> payload, CactusInitParams options) async {
     autoInit();
-    _instance!._trackInternal(payload, options);
+    await _instance!._trackInternal(payload, options);
   }
 
-  static void error(Object error, CactusInitParams options) {
+  static Future<void> error(Object error, CactusInitParams options) async {
     autoInit();
-    _instance!._errorInternal(error, options);
+    await _instance!._errorInternal(error, options);
   }
 
-  void _trackInternal(Map<String, dynamic> payload, CactusInitParams options) {
+  Future<void> _trackInternal(Map<String, dynamic> payload, CactusInitParams options) async {
+    final packageInfo = await PackageInfo.fromPlatform();
     final record = TelemetryRecord(
       os: Platform.isIOS ? 'iOS' : 'Android',
       osVersion: Platform.operatingSystemVersion,
       framework: 'flutter',
+      projectId: '${packageInfo.packageName}@${packageInfo.version}',
       telemetryPayload: payload,
       timestamp: DateTime.now().toIso8601String(),
       modelFilename: _getFilename(options.modelPath ?? options.modelUrl),
@@ -107,7 +113,8 @@ class CactusTelemetry {
     _sendRecord(record);
   }
 
-  void _errorInternal(Object error, CactusInitParams options) {
+  Future<void> _errorInternal(Object error, CactusInitParams options) async {
+    final packageInfo = await PackageInfo.fromPlatform();
     final errorPayload = {
       'message': error.toString(),
       'type': error.runtimeType.toString(),
@@ -118,6 +125,7 @@ class CactusTelemetry {
       os: Platform.isIOS ? 'iOS' : 'Android',
       osVersion: Platform.operatingSystemVersion,
       framework: 'flutter',
+      projectId: '${packageInfo.packageName}@${packageInfo.version}',
       errorPayload: errorPayload,
       timestamp: DateTime.now().toIso8601String(),
       modelFilename: _getFilename(options.modelPath ?? options.modelUrl),

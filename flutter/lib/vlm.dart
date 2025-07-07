@@ -2,7 +2,7 @@ import 'dart:async';
 
 import './types.dart';
 import './context.dart';
-import './telemetary.dart';
+import './telemetry.dart';
 
 class CactusVLM {
   CactusContext? _context;
