@@ -6,7 +6,6 @@ import './telemetry.dart';
 
 class CactusVLM {
   CactusContext? _context;
-  CactusInitParams? _initParams;
   
   CactusVLM._();
 
@@ -37,7 +36,6 @@ class CactusVLM {
     
     try {
       vlm._context = await CactusContext.init(initParams);
-      vlm._initParams = initParams;
     } catch (e) {
       CactusTelemetry.error(e, initParams);
       rethrow;
@@ -58,21 +56,6 @@ class CactusVLM {
   }) async {
     if (_context == null) throw CactusException('CactusVLM not initialized');
     
-    final startTime = DateTime.now();
-    bool firstTokenReceived = false;
-    DateTime? firstTokenTime;
-    
-    CactusTokenCallback? wrappedCallback;
-    if (onToken != null) {
-      wrappedCallback = (String token) {
-        if (!firstTokenReceived) {
-          firstTokenTime = DateTime.now();
-          firstTokenReceived = true;
-        }
-        return onToken(token);
-      };
-    }
-    
     final result = await _context!.completion(
       CactusCompletionParams(
         messages: messages,
@@ -81,26 +64,10 @@ class CactusVLM {
         topK: topK,
         topP: topP,
         stopSequences: stopSequences,
-        onNewToken: wrappedCallback,
+        onNewToken: onToken,
       ),
       mediaPaths: imagePaths,
     );
-    
-    // Track telemetry after completion
-    if (_initParams != null) {
-      final endTime = DateTime.now();
-      final totalTime = endTime.difference(startTime).inMilliseconds;
-      final tokPerSec = totalTime > 0 ? (result.tokensPredicted * 1000.0) / totalTime : null;
-      final ttft = firstTokenTime != null ? firstTokenTime!.difference(startTime).inMilliseconds : null;
-      
-      CactusTelemetry.track({
-        'event': 'completion',
-        'tok_per_sec': tokPerSec,
-        'toks_generated': result.tokensPredicted,
-        'ttft': ttft,
-        'num_images': imagePaths.length,
-      }, _initParams!);
-    }
     
     return result;
   }
