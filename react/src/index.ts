@@ -407,11 +407,21 @@ export class LlamaContext {
     return Cactus.detokenize(this.id, tokens)
   }
 
-  embedding(
+  async embedding(
     text: string,
     params?: EmbeddingParams,
   ): Promise<NativeEmbeddingResult> {
-    return Cactus.embedding(this.id, text, params || {})
+    const startTime = Date.now();
+    const embeddingResult = await Cactus.embedding(this.id, text, params || {})
+    const totalTime = Date.now() - startTime;
+    const deviceInfo = await getDeviceInfo(this.id);
+    Telemetry.track({
+      event: 'embedding',
+      mode: 'local',
+      embedding_time: totalTime,
+    }, telemetryParams, deviceInfo);
+    return embeddingResult;
+    
   }
 
   async bench(

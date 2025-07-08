@@ -99,12 +99,6 @@ export class CactusLM {
     } else {
       throw new Error('Invalid mode: ' + mode + '. Must be "local", "remote", "localfirst", or "remotefirst"');
     }
-
-    Telemetry.track({
-      event: 'embedding',
-      mode: mode,
-    }, this.initParams);
-
     return result;
   }
 
