@@ -3,7 +3,6 @@ import {
   initMultimodal,
   multimodalCompletion,
   LlamaContext,
-  getDeviceInfo,
 } from './index'
 import type {
   ContextParams,
@@ -11,7 +10,6 @@ import type {
   CactusOAICompatibleMessage,
   NativeCompletionResult,
 } from './index'
-import type { NativeDeviceInfo } from './NativeCactus'
 import { Telemetry } from './telemetry'
 
 interface CactusVLMReturn {
@@ -29,13 +27,9 @@ export type VLMCompletionParams = Omit<CompletionParams, 'prompt'> & {
 
 export class CactusVLM {
   private context: LlamaContext
-  private initParams: VLMContextParams
-  private deviceInfo: NativeDeviceInfo
   
-  private constructor(context: LlamaContext, initParams: VLMContextParams, deviceInfo: NativeDeviceInfo) {
+  private constructor(context: LlamaContext) {
     this.context = context
-    this.initParams = initParams
-    this.deviceInfo = deviceInfo
   }
 
   static async init(
@@ -52,10 +46,13 @@ export class CactusVLM {
         const context = await initLlama(config, onProgress)
         // Explicitly disable GPU for the multimodal projector for stability.
         await initMultimodal(context.id, params.mmproj, false)
-        const deviceInfo = await getDeviceInfo(context.id)
-        return {vlm: new CactusVLM(context, params, deviceInfo), error: null}
+        return {vlm: new CactusVLM(context), error: null}
       } catch (e) {
-        Telemetry.error(e as Error, config);
+        Telemetry.error(e as Error, {
+          n_gpu_layers: config.n_gpu_layers ?? null,
+          n_ctx: config.n_ctx ?? null,
+          model: config.model ?? null,
+        });
         if (configs.indexOf(config) === configs.length - 1) {
           return {vlm: null, error: e as Error}
         }
@@ -70,13 +67,6 @@ export class CactusVLM {
     params: VLMCompletionParams = {},
     callback?: (data: any) => void,
   ): Promise<NativeCompletionResult> {
-    const startTime = Date.now();
-    let firstTokenTime: number | null = null;
-    
-    const wrappedCallback = callback ? (data: any) => {
-      if (firstTokenTime === null) firstTokenTime = Date.now();
-      callback(data);
-    } : undefined;
 
     let result: NativeCompletionResult;
     if (params.images && params.images.length > 0) {
@@ -92,16 +82,8 @@ export class CactusVLM {
         { ...params, prompt, emit_partial_completion: !!callback },
       )
     } else {
-      result = await this.context.completion({ messages, ...params }, wrappedCallback)
+      result = await this.context.completion({ messages, ...params }, callback)
     }
-    
-    Telemetry.track({
-      event: 'completion',
-      tok_per_sec: (result as any).timings?.predicted_per_second,
-      toks_generated: (result as any).timings?.predicted_n,
-      ttft: firstTokenTime ? firstTokenTime - startTime : null,
-      num_images: params.images?.length,
-    }, this.initParams, this.deviceInfo);
 
     return result;
   }
