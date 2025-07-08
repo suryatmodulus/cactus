@@ -3,6 +3,7 @@ import 'dart:async';
 import './types.dart';
 import './context.dart';
 import './telemetry.dart';
+import './remote.dart';
 
 class CactusLM {
   CactusContext? _context;
@@ -18,8 +19,13 @@ class CactusLM {
     int threads = 4,
     bool generateEmbeddings = false,
     CactusProgressCallback? onProgress,
+    String? cactusToken,
   }) async {
     final lm = CactusLM._();
+    
+    if (cactusToken != null) {
+      setCactusToken(cactusToken);
+    }
     
     final initParams = CactusInitParams(
       modelUrl: modelUrl,
@@ -53,6 +59,22 @@ class CactusLM {
   }) async {
     if (_context == null) throw CactusException('CactusLM not initialized');
     
+    final startTime = DateTime.now();
+    bool firstTokenReceived = false;
+    DateTime? firstTokenTime;
+    
+    // Wrap the callback to capture first token timing
+    CactusTokenCallback? wrappedCallback;
+    if (onToken != null) {
+      wrappedCallback = (String token) {
+        if (!firstTokenReceived) {
+          firstTokenTime = DateTime.now();
+          firstTokenReceived = true;
+        }
+        return onToken(token);
+      };
+    }
+    
     final result = await _context!.completion(
       CactusCompletionParams(
         messages: messages,
@@ -61,16 +83,85 @@ class CactusLM {
         topK: topK,
         topP: topP,
         stopSequences: stopSequences,
-        onNewToken: onToken,
+        onNewToken: wrappedCallback,
       ),
     );
+    
+    // Track telemetry after completion
+    if (_initParams != null) {
+      final endTime = DateTime.now();
+      final totalTime = endTime.difference(startTime).inMilliseconds;
+      final tokPerSec = totalTime > 0 ? (result.tokensPredicted * 1000.0) / totalTime : null;
+      final ttft = firstTokenTime != null ? firstTokenTime!.difference(startTime).inMilliseconds : null;
+      
+      CactusTelemetry.track({
+        'event': 'completion',
+        'tok_per_sec': tokPerSec,
+        'toks_generated': result.tokensPredicted,
+        'ttft': ttft,
+      }, _initParams!);
+    }
     
     return result;
   }
 
-  Future<List<double>> embedding(String text) async {
+  Future<List<double>> embedding(String text, {String mode = "local"}) async {
+    final startTime = DateTime.now();
+    
+    List<double>? result;
+    Exception? lastError;
+
+    if (mode == "remote") {
+      result = await _handleRemoteEmbedding(text);
+    } else if (mode == "local") {
+      result = await _handleLocalEmbedding(text);
+    } else if (mode == "localfirst") {
+      try {
+        result = await _handleLocalEmbedding(text);
+      } catch (e) {
+        lastError = e is Exception ? e : Exception(e.toString());
+        try {
+          result = await _handleRemoteEmbedding(text);
+        } catch (remoteError) {
+          throw lastError;
+        }
+      }
+    } else if (mode == "remotefirst") {
+      try {
+        result = await _handleRemoteEmbedding(text);
+      } catch (e) {
+        lastError = e is Exception ? e : Exception(e.toString());
+        try {
+          result = await _handleLocalEmbedding(text);
+        } catch (localError) {
+          throw lastError;
+        }
+      }
+    } else {
+      throw ArgumentError('Invalid mode: $mode. Must be "local", "remote", "localfirst", or "remotefirst"');
+    }
+    
+    if (_initParams != null) {
+      final endTime = DateTime.now();
+      final totalTime = endTime.difference(startTime).inMilliseconds;
+      
+      CactusTelemetry.track({
+        'event': 'embedding',
+        'embedding_time': totalTime,
+        'mode': mode,
+      }, _initParams!);
+    }
+    
+    return result;
+  }
+
+  Future<List<double>> _handleLocalEmbedding(String text) async {
     if (_context == null) throw CactusException('CactusLM not initialized');
     return await _context!.embedding(text);
+  }
+
+  Future<List<double>> _handleRemoteEmbedding(String text) async {
+    return await getVertexAIEmbedding(text);
   }
 
   Future<List<int>> tokenize(String text) async {
